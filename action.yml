@@ -1,0 +1,42 @@
+name: "Pull Request Feedback"
+description: ""
+author: "Exit0 Team"
+inputs:
+  version:
+    description: |
+      The version of feedback tool to use.
+    required: false
+    default: "latest"
+
+
+outputs:
+  stdout:
+    description: "Standard output of the executed commands when capture_stdout is enabled."
+    value: ${{ steps.entrypoint.outputs.stdout }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install OIDC Client from Core Package
+      run: npm install @actions/core@1.6.0 @actions/http-client
+    - name: Get Id Token
+      uses: actions/github-script@v8
+      id: idtoken
+      with:
+        script: |
+          const coredemo = require('@actions/core')
+          let id_token = await coredemo.getIDToken()
+          coredemo.setOutput('id_token', id_token)
+
+    - id: entrypoint
+      name: Run entrypoint.sh
+      run: entrypoint.sh
+      shell: bash
+      env:
+        GITHUB_OIDC_TOKEN: ${{ steps.idtoken.outputs.id_token }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        LINKED_ISSUE_NUMBER: 
+
+branding:
+  icon: "award"
+  color: "green"
