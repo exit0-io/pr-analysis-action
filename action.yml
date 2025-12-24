@@ -36,6 +36,7 @@ runs:
           fi
         fi
     - name: Install OIDC Client from Core Package
+      shell: bash
       run: npm install @actions/core@1.6.0 @actions/http-client
     - name: Get Id Token
       uses: actions/github-script@v8
