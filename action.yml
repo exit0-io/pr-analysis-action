@@ -44,6 +44,24 @@ runs:
           const fs = require('fs')
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `id_token=${id_token}\n`)
 
+    - name: Check Linked Issues
+      uses: actions/github-script@v8
+      with:
+        script: |
+          const timeline = await github.rest.issues.listEventsForTimeline({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number
+          });
+          
+          const linkedIssues = timeline.data.filter(event => 
+            event.event === 'connected' || event.event === 'cross-referenced'
+          );
+          
+          if (linkedIssues.length === 0) {
+            core.setFailed('No linked issues found. Please link at least one issue to this PR.');
+          }
+
     - id: entrypoint
       name: Run entrypoint.sh
       run: ${{ github.action_path }}/entrypoint.sh
