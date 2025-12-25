@@ -20,24 +20,15 @@ runs:
     - name: Check Action Version
       shell: bash
       run: |
-        echo "::group::Checking action version"
+        # Checking action version
 
         CURRENT_REF="${{ github.action_ref }}"
         if [[ "$CURRENT_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
           LATEST_TAG=$(git -c 'versionsort.suffix=-' ls-remote --tags --refs --sort='v:refname' https://github.com/${{ github.action_repository }} | tail -n1 | sed 's/.*\///')
           if [ "$CURRENT_REF" != "$LATEST_TAG" ]; then
-            TAG_DATE=$(git log -1 --format=%ct "refs/tags/$CURRENT_REF" 2>/dev/null || echo "0")
-            CURRENT_DATE=$(date +%s)
-            AGE_DAYS=$(( (CURRENT_DATE - TAG_DATE) / 86400 ))
-            if [ $AGE_DAYS -gt 365 ]; then
-              echo "::error::You are using $CURRENT_REF which is over 1 year old. Latest version is $LATEST_TAG. Please update to the latest version."
-              exit 1
-            else
-              echo "::warning::You are using $CURRENT_REF. A newer version $LATEST_TAG is available."
-            fi
+            echo "::warning::You are using $CURRENT_REF. A newer version $LATEST_TAG is available."
           fi
         fi
-
         echo "::endgroup::"
 
     - name: Install OIDC Client from Core Package
