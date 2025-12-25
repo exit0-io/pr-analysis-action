@@ -60,6 +60,11 @@ runs:
           
           if (linkedIssues.length === 0) {
             core.setFailed('No linked issues found. Please link at least one issue to this PR.');
+          } else {
+            core.notice(`Found ${linkedIssues.length} linked issue(s)`);
+            linkedIssues.forEach(event => {
+              core.notice(`Issue #${event.issue?.number || 'unknown'}: ${event.issue?.title || 'N/A'}`);
+            });
           }
 
     - id: entrypoint
