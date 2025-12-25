@@ -2,11 +2,7 @@ name: "Pull Request Feedback"
 description: ""
 author: "Exit0 Team"
 inputs:
-  version:
-    description: |
-      The version of feedback tool to use.
-    required: false
-    default: "latest"
+
 
 
 outputs:
@@ -20,6 +16,8 @@ runs:
     - name: Check Action Version
       shell: bash
       run: |
+        echo "::group::Checking action version"
+
         CURRENT_REF="${{ github.action_ref }}"
         if [[ "$CURRENT_REF" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
           LATEST_TAG=$(git -c 'versionsort.suffix=-' ls-remote --tags --refs --sort='v:refname' https://github.com/${{ github.action_repository }} | tail -n1 | sed 's/.*\///')
@@ -35,6 +33,9 @@ runs:
             fi
           fi
         fi
+
+        echo "::endgroup::"
+
     - name: Install OIDC Client from Core Package
       shell: bash
       run: npm install @actions/core@1.6.0 @actions/http-client
