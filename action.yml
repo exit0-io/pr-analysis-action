@@ -41,11 +41,12 @@ runs:
         script: |
           const coredemo = require('@actions/core')
           let id_token = await coredemo.getIDToken()
-          coredemo.setOutput('id_token', id_token)
+          const fs = require('fs')
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `id_token=${id_token}\n`)
 
     - id: entrypoint
       name: Run entrypoint.sh
-      run: entrypoint.sh
+      run: ${{ github.action_path }}/entrypoint.sh
       shell: bash
       env:
         GITHUB_OIDC_TOKEN: ${{ steps.idtoken.outputs.id_token }}
