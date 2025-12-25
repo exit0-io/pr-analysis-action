@@ -2,6 +2,10 @@ name: "Pull Request Feedback"
 description: ""
 author: "Exit0 Team"
 inputs:
+  capture_stdout:
+    description: "Whether to capture and return the standard output of the executed commands."
+    required: false
+    default: "true"
 
 
 
