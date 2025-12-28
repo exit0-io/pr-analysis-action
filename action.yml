@@ -48,23 +48,33 @@ runs:
       uses: actions/github-script@v8
       with:
         script: |
-          const timeline = await github.rest.issues.listEventsForTimeline({
+          const query = `query($owner:String!, $repo:String!, $number:Int!) {
+            repository(owner: $owner, name: $repo) {
+              pullRequest(number: $number) {
+                closingIssuesReferences(first: 10) {
+                  nodes {
+                    number
+                    title
+                  }
+                }
+              }
+            }
+          }`;
+          
+          const variables = {
             owner: context.repo.owner,
             repo: context.repo.repo,
-            issue_number: context.issue.number
-          });
+            number: context.payload.pull_request.number
+          };
           
-          const linkedIssues = timeline.data.filter(event => 
-            event.event === 'connected' || event.event === 'cross-referenced'
-          );
+          const result = await github.graphql(query, variables);
+          const linkedIssues = result.repository.pullRequest.closingIssuesReferences.nodes;
           
           if (linkedIssues.length === 0) {
             core.setFailed('No linked issues found. Please link at least one issue to this PR.');
           } else {
-            core.notice(`Found ${linkedIssues.length} linked issue(s)`);
-            linkedIssues.forEach(event => {
-              core.notice(`Issue #${event.issue?.number || 'unknown'}: ${event.issue?.title || 'N/A'}`);
-            });
+            const issueList = linkedIssues.map(issue => `#${issue.number}: ${issue.title}`).join(', ');
+            core.notice(`Found ${linkedIssues.length} linked issue(s): ${issueList}`);
           }
 
     - id: entrypoint
