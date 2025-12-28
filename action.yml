@@ -46,6 +46,7 @@ runs:
 
     - name: Check Linked Issues
       uses: actions/github-script@v8
+      id: check-issues
       with:
         script: |
           const query = `query($owner:String!, $repo:String!, $number:Int!) {
@@ -75,6 +76,62 @@ runs:
           } else {
             const issueList = linkedIssues.map(issue => `#${issue.number}: ${issue.title}`).join(', ');
             core.notice(`Found ${linkedIssues.length} linked issue(s): ${issueList}`);
+            
+            // Extract task IDs from issue titles
+            const taskIds = linkedIssues
+              .map(issue => {
+                const match = issue.title.match(/\[([^\]]+)\]/);
+                return match ? match[1].toLowerCase() : null;
+              })
+              .filter(id => id !== null);
+            
+            core.setOutput('task_ids', taskIds.join(','));
+          }
+
+    - name: Fetch Test Files
+      uses: actions/github-script@v8
+      with:
+        script: |
+          // Get template repository information
+          const repo = await github.rest.repos.get({
+            owner: context.repo.owner,
+            repo: context.repo.repo
+          });
+          
+          if (!repo.data.template_repository) {
+            core.setFailed('This repository was not created from a template. This workflow only works for repositories created from a template.');
+            return;
+          }
+          
+          const templateOwner = repo.data.template_repository.owner.login;
+          const templateRepo = repo.data.template_repository.name;
+          const taskIds = '${{ steps.check-issues.outputs.task_ids }}'.split(',');
+          
+          core.notice(`Template repository: ${templateOwner}/${templateRepo}`);
+          core.notice(`Fetching test files for task IDs: ${taskIds.join(', ')}`);
+          
+          // Get contents of testing branch
+          try {
+            const { data: contents } = await github.rest.repos.getContent({
+              owner: templateOwner,
+              repo: templateRepo,
+              path: '',
+              ref: 'testing'
+            });
+            
+            // Filter files matching task IDs
+            const testFiles = contents.filter(item => {
+              const fileName = item.name.toLowerCase();
+              return taskIds.some(taskId => fileName.includes(taskId));
+            });
+            
+            if (testFiles.length === 0) {
+              core.warning(`No test files found for task IDs: ${taskIds.join(', ')}`);
+            } else {
+              core.notice(`Found ${testFiles.length} test file(s): ${testFiles.map(f => f.name).join(', ')}`);
+            }
+          } catch (error) {
+            core.setFailed(`Failed to fetch test files from template repository: ${error.message}`);
           }
 
     - id: entrypoint
