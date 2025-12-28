@@ -73,8 +73,8 @@ runs:
           };
           
           const result = await github.graphql(query, variables);
-          const linkedIssues = result.repository.pullRequest.closingIssuesReferences.nodes
-          .filter(issue => issue.author?.__typename === 'Bot');
+          const linkedIssues = result.repository.pullRequest.closingIssuesReferences.nodes;
+          # .filter(issue => issue.author?.__typename === 'Bot');
           
           if (linkedIssues.length === 0) {
             core.setFailed('No linked issue found. Please link your task issue (the issue created by us) to this PR using the "Development" section in the PR sidebar. This allows us to run the relevant tests and provide feedback.');
