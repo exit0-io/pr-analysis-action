@@ -71,7 +71,7 @@ runs:
           const linkedIssues = result.repository.pullRequest.closingIssuesReferences.nodes;
           
           if (linkedIssues.length === 0) {
-            core.setFailed('No linked issues found. Please link at least one issue to this PR via the "Development" section in the PR sidebar.');
+            core.setFailed('No linked issue found. Please link your task issue to this PR using the "Development" section in the PR sidebar. This allows us to run the relevant tests and provide feedback.');
           } else {
             const issueList = linkedIssues.map(issue => `#${issue.number}: ${issue.title}`).join(', ');
             core.notice(`Found ${linkedIssues.length} linked issue(s): ${issueList}`);
