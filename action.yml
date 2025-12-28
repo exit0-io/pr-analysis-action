@@ -52,10 +52,14 @@ runs:
           const query = `query($owner:String!, $repo:String!, $number:Int!) {
             repository(owner: $owner, name: $repo) {
               pullRequest(number: $number) {
-                closingIssuesReferences(first: 10) {
+                closingIssuesReferences(first: 100) {
                   nodes {
                     number
                     title
+                    author {
+                      __typename
+                      login
+                    }
                   }
                 }
               }
@@ -72,16 +76,17 @@ runs:
           const linkedIssues = result.repository.pullRequest.closingIssuesReferences.nodes;
           
           if (linkedIssues.length === 0) {
-            core.setFailed('No linked issue found. Please link your task issue to this PR using the "Development" section in the PR sidebar. This allows us to run the relevant tests and provide feedback.');
+            core.setFailed('No linked issue found. Please link your task issue (the issue created by us) to this PR using the "Development" section in the PR sidebar. This allows us to run the relevant tests and provide feedback.');
           } else {
             const issueList = linkedIssues.map(issue => `#${issue.number}: ${issue.title}`).join(', ');
             core.notice(`Found ${linkedIssues.length} linked issue(s): ${issueList}`);
             
-            // Extract task IDs from issue titles
+            // Extract task IDs from bot-created issues
             const taskIds = linkedIssues
+              .filter(issue => issue.author?.__typename === 'Bot')
               .map(issue => {
-                const match = issue.title.match(/\[([^\]]+)\]/);
-                return match ? match[1].toLowerCase() : null;
+                const taskId = issue.title.match(/\[(.+?)\]/)?.[1];
+                return taskId || null;
               })
               .filter(id => id !== null);
             
