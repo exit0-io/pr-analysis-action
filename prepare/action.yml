@@ -78,7 +78,7 @@ runs:
           
           if (linkedIssues.length === 0) {
             const prUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${context.payload.pull_request.number}`;
-            core.setFailed(`No linked issue found. Please link the task issue you worked on to your Pull Request (using the "Development" section sidebar): ${prUrl}.\n\nFor more information https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue#manually-linking-a-pull-request-to-an-issue-using-the-pull-request-sidebar`);
+            core.setFailed(`No linked issue found in PR ${prUrl} \nPlease link the task issue you worked on to your Pull Request using the "Development" section sidebar.\nFor more information https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue#manually-linking-a-pull-request-to-an-issue-using-the-pull-request-sidebar`);
           } else {
             const issueList = linkedIssues.map(issue => `#${issue.number}: ${issue.title}`).join(', ');
             core.notice(`Found ${linkedIssues.length} linked issue(s): ${issueList}`);
