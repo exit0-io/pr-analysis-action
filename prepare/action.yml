@@ -10,9 +10,9 @@ inputs:
 
 
 outputs:
-  stdout:
-    description: "Standard output of the executed commands when capture_stdout is enabled."
-    value: ${{ steps.entrypoint.outputs.stdout }}
+  task-ids:
+    description: "Comma-separated list of task IDs extracted from linked issues."
+    value: ${{ steps.check-issues.outputs.task_ids }}
 
 runs:
   using: "composite"
@@ -92,49 +92,6 @@ runs:
             
             core.setOutput('task_ids', taskIds.join(','));
           }
-
-    - name: Get Template Repository Info
-      id: template-info
-      uses: actions/github-script@v8
-      with:
-        script: |
-          const repo = await github.rest.repos.get({
-            owner: context.repo.owner,
-            repo: context.repo.repo
-          });
-          
-          if (!repo.data.template_repository) {
-            core.setFailed('This repository was not created from a template. This workflow only works for repositories created from a template.');
-            return;
-          }
-          
-          const templateFullName = repo.data.template_repository.full_name;
-          core.setOutput('template_repo', templateFullName);
-          core.notice(`Template repository: ${templateFullName}`);
-
-    - name: Checkout Template Repository Tests
-      uses: actions/checkout@v4
-      with:
-        repository: ${{ steps.template-info.outputs.template_repo }}
-        ref: testing
-        path: template-tests
-        fetch-depth: 1
-
-    - name: Run Tests
-      shell: bash
-      run: |
-        TASK_IDS="${{ steps.check-issues.outputs.task_ids }}"
-        
-        IFS=',' read -ra TASK_ID_ARRAY <<< "$TASK_IDS"
-        
-        for TASK_ID in "${TASK_ID_ARRAY[@]}"; do
-          if [ -d "template-tests/test/${TASK_ID}" ]; then
-            echo "::notice::Running tests for task: $TASK_ID"
-            pytest "template-tests/test/${TASK_ID}"
-          else
-            echo "::warning::No test directory found for task: $TASK_ID"
-          fi
-        done
 
 branding:
   icon: "award"
