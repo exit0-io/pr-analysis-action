@@ -1,19 +1,10 @@
 name: "Pull Request Feedback"
 description: ""
 author: "Exit0 Team"
-inputs:
-  capture_stdout:
-    description: "Whether to capture and return the standard output of the executed commands."
-    required: false
-    default: "true"
-
-
-
 outputs:
   task-ids:
     description: "Comma-separated list of task IDs extracted from linked issues."
     value: ${{ steps.check-issues.outputs.task_ids }}
-
 runs:
   using: "composite"
   steps:
@@ -30,20 +21,6 @@ runs:
           fi
         fi
         echo "::endgroup::"
-
-    - name: Install OIDC Client from Core Package
-      shell: bash
-      run: npm install @actions/core@1.6.0 @actions/http-client
-    - name: Get Id Token
-      uses: actions/github-script@v8
-      id: idtoken
-      with:
-        script: |
-          const coredemo = require('@actions/core')
-          let id_token = await coredemo.getIDToken()
-          const fs = require('fs')
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `id_token=${id_token}\n`)
-
     - name: Check Linked Issues
       uses: actions/github-script@v8
       id: check-issues

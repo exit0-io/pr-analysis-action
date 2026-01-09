@@ -1,0 +1,237 @@
+name: "PR AI Review"
+description: "Generate AI-powered educational review comments on student pull requests"
+author: "Exit0 Team"
+
+inputs:
+  project:
+    description: "Project ID for the review"
+    required: true
+  task-ids:
+    description: "Comma-separated list of task IDs (from prepare action output)"
+    required: true
+  environment:
+    description: "Environment to use (prod or dev)"
+    required: false
+    default: "prod"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Generate PR AI Review
+      uses: actions/github-script@v8
+      with:
+        script: |
+          const MAX_DIFF_SIZE = 160000; // ~40k tokens upper limit
+          
+          // Get inputs
+          const project = '${{ inputs.project }}';
+          const taskIdsInput = '${{ inputs.task-ids }}';
+          const environment = '${{ inputs.environment }}';
+          
+          const baseUrl = environment === 'dev' 
+            ? 'https://dev.exit0.io' 
+            : 'https://exit0.io';
+          
+          // Parse task IDs
+          const taskIds = taskIdsInput.split(',').map(id => id.trim()).filter(id => id);
+          if (taskIds.length === 0) {
+            core.setFailed('No task IDs provided. Make sure the prepare action found linked issues to your Pull Request.');
+            return;
+          }
+          
+          core.info(`Project: ${project}`);
+          core.info(`Task IDs: ${taskIds.join(', ')}`);
+          core.info(`Environment: ${environment}`);
+          
+          // Get PR issue number
+          const prNumber = context.payload.issue?.number;
+          if (!prNumber) {
+            core.setFailed('This action must be run on a pull_request or issue_comment event on a PR.');
+            return;
+          }
+          
+          // Verify this is actually a PR (for issue_comment events)
+          if (context.payload.issue && !context.payload.issue.pull_request) {
+            core.setFailed('This action can only run on pull request comments, not issue comments.');
+            return;
+          }
+          
+          core.info(`PR Number: ${prNumber}`);
+          
+          // Fetch PR diff
+          core.info('Fetching PR diff...');
+          const diffResponse = await github.rest.pulls.get({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: prNumber,
+            mediaType: { format: 'diff' }
+          });
+          
+          const rawDiff = diffResponse.data;
+          
+          // Fetch changed files list
+          core.info('Fetching changed files...');
+          const filesResponse = await github.rest.pulls.listFiles({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            pull_number: prNumber,
+            per_page: 100
+          });
+          
+          const filesList = filesResponse.data.map(f => f.filename);
+          core.info(`Changed files: ${filesList.length}`);
+          
+          /**
+           * Add GitHub-style line numbers to diff
+           * Format: L{old}|R{new}: <line content>
+           * For added lines: L-|R{new}
+           * For removed lines: L{old}|R-
+           */
+          function addLineNumbersToDiff(diff) {
+            const lines = diff.split('\n');
+            const result = [];
+            let oldLine = 0;
+            let newLine = 0;
+            
+            for (const line of lines) {
+              // Check for hunk header: @@ -old,count +new,count @@
+              const hunkMatch = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+              
+              if (hunkMatch) {
+                oldLine = parseInt(hunkMatch[1], 10);
+                newLine = parseInt(hunkMatch[2], 10);
+                result.push(line); // Keep hunk header as-is
+                continue;
+              }
+              
+              // File headers (---, +++, diff --git, index, etc.)
+              if (line.startsWith('diff --git') || 
+                  line.startsWith('index ') || 
+                  line.startsWith('---') || 
+                  line.startsWith('+++') ||
+                  line.startsWith('Binary files')) {
+                result.push(line);
+                continue;
+              }
+              
+              // Added line
+              if (line.startsWith('+')) {
+                result.push(`L-|R${newLine}: ${line}`);
+                newLine++;
+                continue;
+              }
+              
+              // Removed line
+              if (line.startsWith('-')) {
+                result.push(`L${oldLine}|R-: ${line}`);
+                oldLine++;
+                continue;
+              }
+              
+              // Context line (or empty line in diff)
+              if (line.startsWith(' ') || line === '') {
+                result.push(`L${oldLine}|R${newLine}: ${line}`);
+                oldLine++;
+                newLine++;
+                continue;
+              }
+              
+              // Other lines (e.g., \ No newline at end of file)
+              result.push(line);
+            }
+            
+            return result.join('\n');
+          }
+          
+          // Add line numbers to diff
+          core.info('Processing diff with line numbers...');
+          let processedDiff = addLineNumbersToDiff(rawDiff);
+          
+          // Truncate to upper limit (backend handles precise truncation)
+          if (processedDiff.length > MAX_DIFF_SIZE) {
+            core.warning(`Diff size (${processedDiff.length} chars) exceeds limit. Truncating to ${MAX_DIFF_SIZE} chars.`);
+            processedDiff = processedDiff.substring(0, MAX_DIFF_SIZE);
+          }
+          
+          core.info(`Final diff size: ${processedDiff.length} chars`);
+          
+          // Get OIDC token
+          core.info('Obtaining OIDC token...');
+          let oidcToken;
+          try {
+            oidcToken = await core.getIDToken(baseUrl);
+          } catch (error) {
+            core.setFailed(`Failed to get OIDC token. Make sure your workflow has 'id-token: write' permission.\nError: ${error.message}`);
+            return;
+          }
+          
+          // Send request to backend
+          const apiUrl = `${baseUrl}/user/review/${project}`;
+          core.info(`Sending review request to ${apiUrl}...`);
+          
+          try {
+            const response = await fetch(apiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${oidcToken}`
+              },
+              body: JSON.stringify({
+                prNumber,
+                diff: processedDiff,
+                filesList,
+                taskIds
+              })
+            });
+            
+            const responseText = await response.text();
+            let responseData;
+            try {
+              responseData = JSON.parse(responseText);
+            } catch {
+              responseData = { error: responseText };
+            }
+            
+            if (!response.ok) {
+              // Handle specific error cases with clear annotations
+              switch (response.status) {
+                case 429:
+                  core.setFailed('⏱️ Rate limit exceeded. You can only request one AI review per minute. Please wait and try again.');
+                  break;
+                case 400:
+                  const errorMsg = responseData.error || 'Bad request';
+                  if (errorMsg.includes('Task not found')) {
+                    core.setFailed(`❌ Invalid task ID: ${errorMsg}\nMake sure the linked issue titles contain valid task IDs in brackets, e.g., [docker_intro]`);
+                  } else if (errorMsg.includes('project')) {
+                    core.setFailed(`❌ Invalid project: "${project}"\nCheck that the project ID is correct and configured for AI reviews.`);
+                  } else if (errorMsg.includes('taskIds')) {
+                    core.setFailed(`❌ Task ID validation failed: ${errorMsg}\nEnsure you have 1-3 valid task IDs linked to your PR.`);
+                  } else {
+                    core.setFailed(`❌ Bad request: ${errorMsg}`);
+                  }
+                  break;
+                case 401:
+                  core.setFailed('🔒 Authentication failed. The OIDC token was rejected. Make sure you are a registered user.');
+                  break;
+                case 404:
+                  core.setFailed(`🔍 Not found: ${responseData.error || 'The PR or resource was not found.'}`);
+                  break;
+                case 500:
+                  core.setFailed(`💥 Server error: The review service encountered an error. Please try again later.\nDetails: ${responseData.error || 'Unknown error'}`);
+                  break;
+                default:
+                  core.setFailed(`❌ Request failed (${response.status}): ${responseData.error || responseText}`);
+              }
+              return;
+            }
+            
+            core.info('✅ PR AI review created successfully!');
+            core.notice('AI review comments have been added to your pull request.');
+            
+          } catch (error) {
+            core.setFailed(`🌐 Network error: Failed to connect to the review service.\nError: ${error.message}`);
+          }
+
+branding:
+  icon: "message-square"
+  color: "purple"
