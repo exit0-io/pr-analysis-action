@@ -6,10 +6,10 @@ inputs:
   project:
     description: "Project ID for the review"
     required: true
-  environment:
-    description: "Environment to use (prod or dev)"
+  debug:
+    description: "Enable debug mode to print diff and files list"
     required: false
-    default: "prod"
+    default: "false"
 
 runs:
   using: "composite"
@@ -22,14 +22,9 @@ runs:
           
           // Get inputs
           const project = '${{ inputs.project }}';
-          const environment = '${{ inputs.environment }}';
+          const debug = '${{ inputs.debug }}' === 'true';
           
-          const baseUrl = environment === 'dev' 
-            ? 'https://dev.exit0.io' 
-            : 'https://exit0.io';
-          
-          core.info(`Project: ${project}`);
-          core.info(`Environment: ${environment}`);
+          const baseUrl = 'https://3589e65b0f70.ngrok-free.app';
           
           // Get PR number from issue_comment event
           const prNumber = context.payload.issue?.number;
@@ -44,10 +39,9 @@ runs:
             return;
           }
           
-          core.info(`PR Number: ${prNumber}`);
+          core.info(`📋 PR #${prNumber} | Project: ${project}`);
           
           // Fetch linked issues and extract task IDs
-          core.info('Fetching linked issues...');
           const query = `query($owner:String!, $repo:String!, $number:Int!) {
             repository(owner: $owner, name: $repo) {
               pullRequest(number: $number) {
@@ -80,9 +74,6 @@ runs:
             return;
           }
           
-          const issueList = linkedIssues.map(issue => `#${issue.number}: ${issue.title}`).join(', ');
-          core.notice(`Found ${linkedIssues.length} linked issue(s): ${issueList}`);
-          
           // Extract task IDs from linked issues
           const taskIds = linkedIssues
             .map(issue => {
@@ -96,10 +87,12 @@ runs:
             return;
           }
           
-          core.info(`Task IDs: ${taskIds.join(', ')}`);
+          const issueList = linkedIssues.map(issue => `#${issue.number}: ${issue.title}`).join(', ');
+          core.notice(`🔗 Found ${linkedIssues.length} linked issue(s): ${issueList}`);
+          core.info(`   └─ Task IDs: ${taskIds.join(', ')}`);
           
-          // Fetch PR diff
-          core.info('Fetching PR diff...');
+          // Fetch PR diff and changed files
+          core.info('📥 Fetching PR data...');
           const diffResponse = await github.rest.pulls.get({
             owner: context.repo.owner,
             repo: context.repo.repo,
@@ -109,8 +102,6 @@ runs:
           
           const rawDiff = diffResponse.data;
           
-          // Fetch changed files list
-          core.info('Fetching changed files...');
           const filesResponse = await github.rest.pulls.listFiles({
             owner: context.repo.owner,
             repo: context.repo.repo,
@@ -119,7 +110,7 @@ runs:
           });
           
           const filesList = filesResponse.data.map(f => f.filename);
-          core.info(`Changed files: ${filesList.length}`);
+          core.info(`   └─ ${filesList.length} file(s) changed`);
           
           /**
            * Add GitHub-style line numbers to diff
@@ -184,19 +175,18 @@ runs:
           }
           
           // Add line numbers to diff
-          core.info('Processing diff with line numbers...');
+          core.info('⚙️ Processing diff...');
           let processedDiff = addLineNumbersToDiff(rawDiff);
           
           // Truncate to upper limit (backend handles precise truncation)
           if (processedDiff.length > MAX_DIFF_SIZE) {
-            core.warning(`Diff size (${processedDiff.length} chars) exceeds limit. Truncating to ${MAX_DIFF_SIZE} chars.`);
+            core.warning(`⚠️ Diff truncated: ${processedDiff.length} → ${MAX_DIFF_SIZE} chars`);
             processedDiff = processedDiff.substring(0, MAX_DIFF_SIZE);
           }
           
-          core.info(`Final diff size: ${processedDiff.length} chars`);
+          core.info(`   └─ Diff size: ${processedDiff.length} chars`);
           
           // Get OIDC token
-          core.info('Obtaining OIDC token...');
           let oidcToken;
           try {
             oidcToken = await core.getIDToken(baseUrl);
@@ -205,9 +195,20 @@ runs:
             return;
           }
           
+          // Debug output
+          if (debug) {
+            core.startGroup('🐛 Debug: Request payload');
+            core.info('Files list:');
+            filesList.forEach(f => core.info(`  - ${f}`));
+            core.info('');
+            core.info('Processed diff:');
+            core.info(processedDiff);
+            core.endGroup();
+          }
+          
           // Send request to backend
           const apiUrl = `${baseUrl}/user/review/${project}`;
-          core.info(`Sending review request to ${apiUrl}...`);
+          core.info('🚀 Requesting AI review...');
           
           try {
             const response = await fetch(apiUrl, {
@@ -265,8 +266,7 @@ runs:
               return;
             }
             
-            core.info('✅ PR AI review created successfully!');
-            core.notice('AI review comments have been added to your pull request.');
+            core.notice('✅ AI review comments have been added to your pull request!');
             
           } catch (error) {
             core.setFailed(`🌐 Network error: Failed to connect to the review service.\nError: ${error.message}`);
