@@ -191,7 +191,7 @@ runs:
           try {
             oidcToken = await core.getIDToken(baseUrl);
           } catch (error) {
-            core.setFailed(`Failed to get OIDC token. Make sure your workflow has 'id-token: write' permission.\nError: ${error.message}`);
+            core.setFailed(`Failed to get OIDC token. Make sure your workflow has 'id-token: write' permission. Error: ${error.message}`);
             return;
           }
           
@@ -236,15 +236,33 @@ runs:
             if (!response.ok) {
               // Handle specific error cases with clear annotations
               const errorMsg = responseData.error || responseText || 'Unknown error';
-              core.setFailed(`❌ AI Review request failed (${response.status}).\n\n ${errorMsg}`);
+              core.setFailed(`❌ AI Review request failed (${response.status}). ${errorMsg}`);
               return;
             }
+            
+            // Extract the review from response
+            const review = responseData.review;
+            if (!review) {
+              core.setFailed('❌ AI Review response missing review data');
+              return;
+            }
+            
+            // Post the review to GitHub using the workflow's token
+            core.info('📝 Posting review to GitHub...');
+            await github.rest.pulls.createReview({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              body: review.body,
+              event: review.event,
+              comments: review.comments || []
+            });
             
             core.notice('✅ AI review comments have been added to your pull request!');
             
           } catch (error) {
-            core.setFailed(`🌐 Network error: Failed to connect to the review service.\nError: ${error.message}`);
-          }
+            core.setFailed(`🌐 Network error: Failed to connect to the review service. Error: ${error.message}`);
+          } 
 
 branding:
   icon: "message-square"
