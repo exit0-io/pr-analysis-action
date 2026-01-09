@@ -6,9 +6,6 @@ inputs:
   project:
     description: "Project ID for the review"
     required: true
-  task-ids:
-    description: "Comma-separated list of task IDs (from prepare action output)"
-    required: true
   environment:
     description: "Environment to use (prod or dev)"
     required: false
@@ -25,38 +22,81 @@ runs:
           
           // Get inputs
           const project = '${{ inputs.project }}';
-          const taskIdsInput = '${{ inputs.task-ids }}';
           const environment = '${{ inputs.environment }}';
           
           const baseUrl = environment === 'dev' 
             ? 'https://dev.exit0.io' 
             : 'https://exit0.io';
           
-          // Parse task IDs
-          const taskIds = taskIdsInput.split(',').map(id => id.trim()).filter(id => id);
-          if (taskIds.length === 0) {
-            core.setFailed('No task IDs provided. Make sure the prepare action found linked issues to your Pull Request.');
-            return;
-          }
-          
           core.info(`Project: ${project}`);
-          core.info(`Task IDs: ${taskIds.join(', ')}`);
           core.info(`Environment: ${environment}`);
           
-          // Get PR issue number
+          // Get PR number from issue_comment event
           const prNumber = context.payload.issue?.number;
           if (!prNumber) {
-            core.setFailed('This action must be run on a pull_request or issue_comment event on a PR.');
+            core.setFailed('This action must be run on an issue_comment event.');
             return;
           }
           
           // Verify this is actually a PR (for issue_comment events)
-          if (context.payload.issue && !context.payload.issue.pull_request) {
+          if (!context.payload.issue?.pull_request) {
             core.setFailed('This action can only run on pull request comments, not issue comments.');
             return;
           }
           
           core.info(`PR Number: ${prNumber}`);
+          
+          // Fetch linked issues and extract task IDs
+          core.info('Fetching linked issues...');
+          const query = `query($owner:String!, $repo:String!, $number:Int!) {
+            repository(owner: $owner, name: $repo) {
+              pullRequest(number: $number) {
+                closingIssuesReferences(first: 100) {
+                  nodes {
+                    number
+                    title
+                    author {
+                      __typename
+                      login
+                    }
+                  }
+                }
+              }
+            }
+          }`;
+          
+          const variables = {
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            number: prNumber
+          };
+          
+          const result = await github.graphql(query, variables);
+          const linkedIssues = result.repository.pullRequest.closingIssuesReferences.nodes;
+          
+          if (linkedIssues.length === 0) {
+            const prUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/pull/${prNumber}`;
+            core.setFailed(`No linked issue found in PR ${prUrl}. Please link the task issue you worked on to your Pull Request using the "Development" section sidebar. For more information https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue#manually-linking-a-pull-request-to-an-issue-using-the-pull-request-sidebar`);
+            return;
+          }
+          
+          const issueList = linkedIssues.map(issue => `#${issue.number}: ${issue.title}`).join(', ');
+          core.notice(`Found ${linkedIssues.length} linked issue(s): ${issueList}`);
+          
+          // Extract task IDs from linked issues
+          const taskIds = linkedIssues
+            .map(issue => {
+              const taskId = issue.title.match(/\[(.+?)\]/)?.[1];
+              return taskId || null;
+            })
+            .filter(id => id !== null);
+          
+          if (taskIds.length === 0) {
+            core.setFailed('No task IDs found in linked issues. Make sure the linked issue titles contain task IDs in brackets, e.g., [docker_intro]');
+            return;
+          }
+          
+          core.info(`Task IDs: ${taskIds.join(', ')}`);
           
           // Fetch PR diff
           core.info('Fetching PR diff...');
